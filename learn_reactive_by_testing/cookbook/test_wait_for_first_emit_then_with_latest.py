@@ -1,7 +1,7 @@
 from reactivex.notification import OnError
 from reactivex.testing import ReactiveTest, TestScheduler
 from reactivex.testing.subscription import Subscription
-from reactivex import operators, interval, concat, combine_latest
+from reactivex import operators, interval, concat, combine_latest, of
 
 on_next = ReactiveTest.on_next
 on_error = ReactiveTest.on_error
@@ -37,6 +37,58 @@ def version_3(major, secondary):
             operators.with_latest_from(secondary)
         )
     )
+
+def version_4(major, secondary):
+    s = secondary.pipe(
+        operators.replay(1),
+        operators.ref_count(),
+    )
+    def reduce(acc, i):
+        return acc + [i]
+    
+    def flatten(x):
+        return of(
+            *[(i, x[1]) for i in x[0]]
+        )
+
+    obs = concat(
+        combine_latest(
+            major.pipe(
+                operators.take_until(s),
+                operators.reduce(reduce, []),
+            ), s,
+        ).pipe(
+            operators.take(1),
+            operators.flat_map(flatten),
+        ),
+        major.pipe(
+            operators.with_latest_from(s)
+        )
+    )
+    return obs
+
+
+def test_v4_major_is_second():
+    scheduler = TestScheduler()
+    secondary = scheduler.create_hot_observable([
+        on_next(150 + 50*i, i) for i in range(10)
+    ])
+    major = scheduler.create_hot_observable(
+        on_next(310, 42),
+        on_next(480, 5),
+    )
+
+    def create():
+        return version_4(major, secondary)
+
+    results = scheduler.start(create)
+    assert results.messages == [
+        on_next(310, (42, 3)),
+        on_next(480, (5, 6)),
+    ]
+    assert major.subscriptions == [Subscription(200.0, 250.0), Subscription(250.0, 1000.0)]
+    assert secondary.subscriptions == [Subscription(200.0, 250.0), Subscription(250.0, 1000.0)]
+
 
 def test_wait_for_emission_slow_major():
     scheduler = TestScheduler()
@@ -185,7 +237,29 @@ def test_v3_major_is_second():
     assert major.subscriptions == [Subscription(200.0, 310.0), Subscription(310.0, 1000.0)]
     assert secondary.subscriptions == [Subscription(200.0, 310.0), Subscription(310.0, 1000.0)]
 
-def test_v3_major_emits_first():
+
+def test_v3_major_is_second():
+    scheduler = TestScheduler()
+    secondary = scheduler.create_hot_observable([
+        on_next(150 + 50*i, i) for i in range(10)
+    ])
+    major = scheduler.create_hot_observable(
+        on_next(310, 42),
+        on_next(480, 5),
+    )
+
+    def create():
+        return version_3(major, secondary)
+
+    results = scheduler.start(create)
+    assert results.messages == [
+        on_next(310, (42, 3)),
+        on_next(480, (5, 6)),
+    ]
+    assert major.subscriptions == [Subscription(200.0, 310.0), Subscription(310.0, 1000.0)]
+    assert secondary.subscriptions == [Subscription(200.0, 310.0), Subscription(310.0, 1000.0)]
+
+def test_v4_major_emits_first():
     scheduler = TestScheduler()
     # Let's have an observable which emits before major one does
     # How to make sure we get that as value when major finally emits
@@ -198,7 +272,7 @@ def test_v3_major_emits_first():
     )
     
     def create():
-        return version_3(major, secondary)
+        return version_4(major, secondary)
         
 
     results = scheduler.start(create)
@@ -207,4 +281,52 @@ def test_v3_major_emits_first():
         on_next(480, (5, 0)),
     ]
     # Verify that we unsubscribed one done
-    assert secondary.subscriptions == [Subscription(200, 1000)]
+    assert secondary.subscriptions == [
+        Subscription(200, 350),
+        Subscription(350, 1000)
+    ]
+    assert major.subscriptions == [
+        Subscription(200, 350),
+        Subscription(350, 1000)
+    ]
+
+def test_v4_major_emits_first_multiple():
+    scheduler = TestScheduler()
+    # Let's have an observable which emits before major one does
+    # How to make sure we get that as value when major finally emits
+    secondary = scheduler.create_hot_observable([
+        on_next(350, 0),
+        on_next(400, 1),
+        on_next(500, 2),
+    ])
+    major = scheduler.create_hot_observable(
+        on_next(250, 1),
+        on_next(300, 2),
+        on_next(320, 3),
+        on_next(480, 4),
+        on_next(600, 5),
+        on_next(700, 6),
+    )
+    
+    def create():
+        return version_4(major, secondary)
+        
+
+    results = scheduler.start(create)
+    assert results.messages == [
+        on_next(350, (1, 0)),
+        on_next(350, (2, 0)),
+        on_next(350, (3, 0)),
+        on_next(480, (4, 1)),
+        on_next(600, (5, 2)),
+        on_next(700, (6, 2)),
+    ]
+    # Verify that we unsubscribed one done
+    assert secondary.subscriptions == [
+        Subscription(200, 350),
+        Subscription(350, 1000)
+    ]
+    assert major.subscriptions == [
+        Subscription(200, 350),
+        Subscription(350, 1000)
+    ]
