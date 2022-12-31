@@ -1,7 +1,10 @@
+import time
 from reactivex.notification import OnError
 from reactivex.testing import ReactiveTest, TestScheduler
 from reactivex.testing.subscription import Subscription
 from reactivex import operators, interval, concat, combine_latest, of
+import reactivex
+import pytest
 
 on_next = ReactiveTest.on_next
 on_error = ReactiveTest.on_error
@@ -150,3 +153,23 @@ def test_without_share_dispose():
 
     assert source.subscriptions == [Subscription(200, 350), Subscription(200, 350)]
 
+
+
+@pytest.mark.xfail()
+def test_with_real_schedulers():
+    "A counter example caused by concurrency"
+    source = reactivex.timer(1, 0.5).pipe(operators.take(4))
+    out = []
+    source.pipe(
+        operators.map(str),
+        operators.with_latest_from(source)
+    ).subscribe(on_next=out.append)
+
+    time.sleep(3)
+
+    # due to threading from timer, this will rarely work
+    assert out == [
+        ('1', 1),
+        ('2', 2),
+        ('3', 3),
+    ]
