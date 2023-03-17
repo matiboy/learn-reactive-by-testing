@@ -126,6 +126,21 @@ files = [
 typing-extensions = ">=4.1.1,<5.0.0"
 
 [[package]]
+name = "returns"
+version = "0.19.0"
+description = "Make your functions return something meaningful, typed, and safe!"
+category = "main"
+optional = false
+python-versions = ">=3.7,<4.0"
+files = [
+    {file = "returns-0.19.0-py3-none-any.whl", hash = "sha256:ae3ce9e5165d1218905291b4d5881b4e8a86ca478437bef3b0af1de8df57ec69"},
+    {file = "returns-0.19.0.tar.gz", hash = "sha256:4544bb67849c1ef1bbf7823759d433a773959e5b77a8fd06d01fef6d060f2ac5"},
+]
+
+[package.dependencies]
+typing-extensions = ">=4.0,<5.0"
+
+[[package]]
 name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
@@ -231,4 +246,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "e8abdf3d639803e3367a3a0971790c9b7e5e9ad80340f6a8b8c2c16d3a455516"
+content-hash = "132b40800ece3661a50554a246f40395ba402d054b6e9cdff1b75b818aca8117"
