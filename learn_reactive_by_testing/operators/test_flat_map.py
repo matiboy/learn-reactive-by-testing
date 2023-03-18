@@ -1,9 +1,11 @@
+import sched
 import time
 from reactivex.notification import OnError
 from reactivex.testing import ReactiveTest, TestScheduler
 from reactivex.testing.subscription import Subscription
 from reactivex import operators
 import reactivex
+from reactivex.scheduler import NewThreadScheduler
 
 on_next = ReactiveTest.on_next
 on_error = ReactiveTest.on_error
@@ -40,6 +42,25 @@ def test_flat_map_completion_behavior():
         Subscription(300, 380),
         Subscription(400, 480)
     ]
+
+def test_flat_map_completion_timer():
+    """
+    
+    """
+    scheduler = NewThreadScheduler()
+    messages = []
+    def on_next(x):
+        messages.append((x, scheduler.now))
+    
+    s = reactivex.timer(0.1, 0.2).pipe(
+        operators.flat_map(lambda x: reactivex.just(x+1))
+    ).subscribe(
+        on_next=on_next,
+        on_error=print, on_completed=lambda: messages.append('completed'), scheduler=scheduler
+    )
+    time.sleep(1)
+    s.dispose()
+    assert True
 
 def test_flat_map_completion_inner_running():
     """
