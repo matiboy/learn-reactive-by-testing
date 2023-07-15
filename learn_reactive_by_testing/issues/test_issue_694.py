@@ -12,74 +12,86 @@ on_completed = ReactiveTest.on_completed
 subscribe = ReactiveTest.subscribe
 
 
-def test_issue_694_no_map():
+def test_issue_694():
     import time
-    from datetime import datetime, timedelta
-
-    import reactivex as rx
-    from reactivex import operators as ops, Observable
-    from reactivex.scheduler import (
-        ThreadPoolScheduler,
-        CurrentThreadScheduler,
-        NewThreadScheduler,
-    )
+    from datetime import timedelta
+    from reactivex import operators as ops
     from reactivex.subject import Subject
 
-    su: Observable[int] = Subject()
     su = Subject()
 
-    c = 10
-    d = 0
-    thread = ThreadPoolScheduler(max_workers=c)
-    scheduler = CurrentThreadScheduler()
-    scheduler = NewThreadScheduler()
     lock = threading.Lock()
+    v = 0
 
-    def inc(x):
-        nonlocal d
-        with lock:
-            d += x
+    def set_checker(x):
+        nonlocal v
+        v = x
+        lock.release()  # <-- unlock only at the very end of the function executions caused by window's on_completed() call
 
-    def print_len(x):
-        print("Length of window:", x)
-
-    items = []
-
-    def print_item(x):
-        print("APPENDING ITEM", x, items)
-        items.append(x)
-
-    def to_len(x):
-        print("Got new window", x)
-        return x.pipe(
-            ops.do_action(print_item),
-            # ops.count(),
-            ops.do_action(print_len),
-        )
-
-    def wait_a_while(x):
-        print("WAIT A WHILE", threading.current_thread().name)
-        time.sleep(1)
-        print("AFTER WAIT A WHILE", threading.current_thread().name)
-        # time.sleep(0)
+    def wait_a_while(*_):
+        time.sleep(10 / 1000)
 
     su.pipe(
-        ops.window_with_time_or_count(count=c, timespan=timedelta(milliseconds=10)),
-        ops.flat_map(to_len),
-        ops.do_action(inc),
-        # start section
-        ops.map(wait_a_while),
+        ops.window_with_time_or_count(
+            count=1_000, timespan=timedelta(milliseconds=1_000)
+        ),
+        ops.flat_map(
+            lambda window: window.pipe(
+                ops.do_action(
+                    on_completed=lock.acquire
+                ),  # <-- lock as soon as window is completed
+                ops.count(),
+            )
+        ),
+        ops.do_action(wait_a_while),
+        ops.scan(lambda acc, x: acc + x, 0),
         # end section
-    ).subscribe()
+    ).subscribe(on_next=set_checker)
 
-    for i in range(2 * c):
-        start = time.time()
-        print(f"Start {i}")
-
-        time.sleep(1 / 1_000)
+    for i in range(2000):
+        time.sleep(1 / 1000)
+        while lock.locked():
+            pass  # <-- wait until the lock is released on the other thread
         su.on_next(i)
-        print(f"End {i}: {time.time() - start}")
-    print("D", d)
-    print("Items", items)
 
     time.sleep(2)
+    assert v == 2_000
+
+
+def test_issue_694_fail():
+    import time
+    from datetime import datetime, timedelta
+    import reactivex as rx
+    from reactivex import operators as ops
+    from reactivex.subject import Subject
+
+    su = Subject()
+    v = 0
+
+    def set_checker(x):
+        nonlocal v
+        v = x
+
+    def wait_a_while(*_):
+        time.sleep(10 / 1000)
+
+    su.pipe(
+        ops.window_with_time_or_count(
+            count=1_000, timespan=timedelta(milliseconds=1_000)
+        ),
+        ops.flat_map(
+            lambda window: window.pipe(
+                ops.count(),
+            )
+        ),
+        ops.do_action(wait_a_while),
+        ops.scan(lambda acc, x: acc + x, 0),
+        # end section
+    ).subscribe(on_next=set_checker)
+
+    for i in range(2000):
+        time.sleep(1 / 1000)
+        su.on_next(i)
+
+    time.sleep(2)
+    assert v == 2_000
