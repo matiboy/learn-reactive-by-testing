@@ -151,6 +151,18 @@ def test_without_share_dispose():
     assert source.subscriptions == [Subscription(200, 350), Subscription(200, 350)]
 
 
+def test_with_zip():
+    source = reactivex.timer(1, 0.5).pipe(operators.take(4))
+    out = []
+    modified = source.pipe(operators.map(lambda x: str(x)))
+
+    reactivex.zip(modified, source).subscribe(on_next=out.append)
+
+    time.sleep(3)
+
+    assert out == [(1, "1"), (2, "2"), (3, "3")]
+
+
 @pytest.mark.xfail()
 def test_with_real_schedulers():
     "A counter example caused by concurrency"
