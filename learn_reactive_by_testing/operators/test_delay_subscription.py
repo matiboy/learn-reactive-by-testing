@@ -11,21 +11,21 @@ on_completed = ReactiveTest.on_completed
 subscribe = ReactiveTest.subscribe
 
 
-
 def test_delay_subscription():
     scheduler = TestScheduler()
     xs = scheduler.create_cold_observable(
-        *[on_next(110+i*100, i) for i in range(10)],
+        *[on_next(110 + i * 100, i) for i in range(10)],
     )
-    
-    result = scheduler.start(lambda: xs.pipe(operators.delay_subscription(150, scheduler=scheduler)))
+    result = scheduler.start(
+        lambda: xs.pipe(operators.delay_subscription(150, scheduler=scheduler))
+    )
     assert result.messages == [
-        on_next(410, 3),
-        on_next(510, 4),
-        on_next(610, 5),
-        on_next(710, 6),
-        on_next(810, 7),
-        on_next(910, 8),
+        on_next(460, 0),
+        on_next(560, 1),
+        on_next(660, 2),
+        on_next(760, 3),
+        on_next(860, 4),
+        on_next(960, 5),
     ]
     assert xs.subscriptions == [
         subscribe(350, 1000),
