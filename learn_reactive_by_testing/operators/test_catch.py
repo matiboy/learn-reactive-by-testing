@@ -56,3 +56,31 @@ def test_catch_ignore_errors_forever():
         on_next(740, 42),
         on_next(890, 42),
     ]
+
+
+def test_catch_ignore_errors_in_flat_map():
+    scheduler = TestScheduler()
+    xs = reactivex.timer(0, 100, scheduler=scheduler)
+    ys = scheduler.create_cold_observable(
+        on_next(90, 42), on_error(100, Exception("Yo"))
+    )
+
+    def create():
+        return xs.pipe(
+            operators.flat_map(lambda _: ys),
+            operators.catch(
+                lambda exc, source: reactivex.concat(
+                    reactivex.timer(50).pipe(operators.ignore_elements())
+                )
+            ),
+            operators.repeat(),
+        )
+
+    result = scheduler.start(create)
+    assert result.messages == [
+        on_next(290, 42),
+        on_next(440, 42),
+        on_next(590, 42),
+        on_next(740, 42),
+        on_next(890, 42),
+    ]
