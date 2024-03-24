@@ -1,11 +1,17 @@
+import functools
+import threading
 import time
+from typing import Optional
 from reactivex.notification import OnError
 from reactivex.testing import ReactiveTest, TestScheduler
 from reactivex.testing.subscription import Subscription
-from reactivex import operators, interval, concat, combine_latest, of
+from reactivex import Observable, operators
 import reactivex
 from reactivex import timer, throw
-import pytest
+from reactivex.disposable import CompositeDisposable, Disposable, SerialDisposable
+from reactivex.scheduler import CurrentThreadScheduler, TimeoutScheduler, ThreadPoolScheduler
+from typing import Optional
+from reactivex import abc
 
 on_next = ReactiveTest.on_next
 on_error = ReactiveTest.on_error
@@ -122,3 +128,92 @@ def test_timer_with_interval_repeat_and_delay():
 #         on_next(660, 0),
 #         on_next(890, 0),
 #     ]
+    
+
+def timer(first: float, period: float, scheduler: Optional[abc.SchedulerBase] = None) -> Observable[int]:
+    """Generates an observable sequence that produces a value after due time and then after each period.
+
+    Args:
+        first: Relative time in seconds for the first value to be produced.
+        period: Relative time in seconds for the subsequent values to be produced.
+        scheduler: [Optional] Scheduler to run the timer on.
+
+    Returns:
+        An observable sequence that produces a value after due time and then each period.
+    """
+    timer_scheduler = scheduler or TimeoutScheduler.singleton()
+    def subscribe(observer: abc.ObserverBase[int], scheduler_: Optional[abc.SchedulerBase] = None) -> abc.DisposableBase:
+        _scheduler = scheduler_ or CurrentThreadScheduler.singleton()
+        is_disposed = False
+        lock = threading.Lock()
+        count = 0
+        start = timer_scheduler.now
+
+        def get_is_disposed() -> bool:
+            with lock:
+                return is_disposed
+        
+        def set_is_disposed():
+            nonlocal is_disposed
+            with lock:
+                is_disposed = True
+
+        def on_next(_s, state) -> None:
+            nonlocal timer_scheduler
+            observer.on_next(state)
+
+        def action(scheduler: abc.SchedulerBase, state: int) -> None:
+            nonlocal count
+            disposed = get_is_disposed()
+            if disposed:
+                return
+            _scheduler.schedule(on_next, count)
+            count += 1
+            if period:
+                timer_scheduler.schedule_absolute(start + timer_scheduler.to_timedelta(first + count * period), action)
+
+        timer_scheduler.schedule_relative(first, action)
+        return Disposable(set_is_disposed)
+
+    return Observable(subscribe)
+
+def test_timer_multiple_subs():
+    scheduler = TestScheduler()
+    observer = scheduler.create_observer()
+    observer2 = scheduler.create_observer()
+    xs = timer(10, 200, scheduler=scheduler)
+    sub = CompositeDisposable()
+    sub.add(xs.subscribe(observer, scheduler=scheduler))
+    scheduler.schedule_absolute(250, lambda *_: sub.add(xs.subscribe(observer2)))
+    scheduler.schedule_absolute(800, lambda *_: sub.dispose())
+    
+
+    scheduler.start()
+
+    assert observer.messages == [
+        on_next(10, 0),
+        on_next(210, 1),
+        on_next(410, 2),
+        on_next(610, 3),
+    ]
+    assert observer2.messages == [
+        on_next(260, 0),
+        on_next(460, 1),
+        on_next(660, 2),
+    ]
+
+def test_timer_multiple_subs_no_virtualtime():
+    scheduler = ThreadPoolScheduler(5)
+    xs = reactivex.timer(0.1, 0.3) # Leave it to a default TimeoutScheduler or not, won't matter 
+    # xs = timer(0.1, 0.3, scheduler=scheduler)
+    messages = []
+    sub = CompositeDisposable()
+    def record(k, x):
+        nonlocal messages
+        messages.append((scheduler.now, k, x, threading.current_thread().name))
+    sub.add(xs.subscribe(functools.partial(record, "FIRST"), scheduler=scheduler))
+    time.sleep(0.25)
+    sub.add(xs.subscribe(functools.partial(record, "SECOND"), scheduler=scheduler))
+    time.sleep(2)
+    # would need to check time and thread which are not always the same, but it works fine
+    assert messages == []

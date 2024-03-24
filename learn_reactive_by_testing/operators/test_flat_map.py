@@ -1,11 +1,12 @@
-import sched
 import time
+import pytest
 from reactivex.notification import OnError
 from reactivex.testing import ReactiveTest, TestScheduler
 from reactivex.testing.subscription import Subscription
 from reactivex import operators
 import reactivex
-from reactivex.scheduler import NewThreadScheduler
+from reactivex.scheduler import NewThreadScheduler, ThreadPoolScheduler
+import threading
 
 on_next = ReactiveTest.on_next
 on_error = ReactiveTest.on_error
@@ -101,3 +102,34 @@ def test_flat_map_execution_order():
         operators.flat_map(lambda x: print("in flatmap", x) or reactivex.just(x * 100)),
         operators.map(lambda x: print("after flatmap", x) or x),
     ).subscribe(print)
+
+def test_flat_map_threads():
+    s = ThreadPoolScheduler()
+
+    reactivex.from_([1,2,3]).pipe(
+        operators.observe_on(s),
+        operators.do_action(lambda x: print("before flat map", x, threading.current_thread().name)),
+        operators.flat_map(lambda x: reactivex.just(x * 100).pipe(
+            operators.observe_on(s),
+            operators.do_action(lambda x: print("in flat map", x, threading.current_thread().name)),
+        
+        )),
+        operators.do_action(lambda x: print("after flat map", x, threading.current_thread().name)),
+    ).subscribe()
+    time.sleep(1)
+
+@pytest.mark.run_this_test
+def test_flat_map_new_thread_scheduler():
+    s = NewThreadScheduler()
+
+    reactivex.from_([1,2,3]).pipe(
+        operators.observe_on(s),
+        operators.do_action(lambda x: print("before flat map", x, threading.current_thread().name)),
+        operators.flat_map(lambda x: reactivex.just(x * 100).pipe(
+            # operators.observe_on(s),
+            operators.do_action(lambda x: print("in flat map", x, threading.current_thread().name)),
+        
+        )),
+        operators.do_action(lambda x: print("after flat map", x, threading.current_thread().name)),
+    ).subscribe()
+    time.sleep(1)
