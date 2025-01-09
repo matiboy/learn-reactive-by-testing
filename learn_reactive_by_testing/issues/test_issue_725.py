@@ -86,6 +86,7 @@ def test_issue_725_3():
         on_next(70, 2),
         on_next(110, 3),
         on_next(150, 4),
+        # ---------- we'll be emitting on the control subject here, see below
         on_next(190, 5),
         on_next(230, 6),
         on_next(270, 7),
@@ -95,12 +96,15 @@ def test_issue_725_3():
         on_next(10, "a"),
         on_next(170, "b") # <- after "4" has been emitted but we are still buffering
     )
-    results = scheduler.start(lambda: control_subject.pipe(
+    # Below is the code you'd want to use
+    your_observable = control_subject.pipe(
         operators.flat_map_latest(lambda x: source.pipe(
             operators.buffer_with_count(3),
-            operators.map(lambda y: (x, y))
+            operators.map(lambda y: (x, y))  # this is not needed, just used to show how we can combine the control subject with the source
         )),
-    ), created=1, subscribed=2)
+    )
+    # Start the test
+    results = scheduler.start(lambda: your_observable, created=1, subscribed=2)
 
     assert results.messages == [
         on_next(110, ("a", [1, 2, 3])),
